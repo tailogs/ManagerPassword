@@ -2,9 +2,39 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace ManagerPassword
 {
+    public static class EncryptionKeyGenerator
+    {
+        public static string GenerateEncryptionKey(string keyFile, int keySize)
+        {
+            if (File.Exists(keyFile))
+            {
+                string key = File.ReadAllText(keyFile).Trim();
+                return key;
+            }
+            else
+            {
+                string key = GenerateRandomKey(keySize);
+                File.WriteAllText(keyFile, key);
+                return key;
+            }
+        }
+
+        private static string GenerateRandomKey(int length)
+        {
+            const string chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+            var random = new Random();
+            string key = new string(Enumerable.Repeat(chars, length)
+                .Select(s => s[random.Next(s.Length)]).ToArray());
+            return key;
+        }
+    }
+
     public class Site
     {
         public string Name { get; set; }
@@ -14,10 +44,11 @@ namespace ManagerPassword
     public class Program
     {
         static List<Site> sites = new List<Site>();
+        static string keyFile = "encryption_key.txt";
+        static string encryptionKey = EncryptionKeyGenerator.GenerateEncryptionKey(keyFile, 16);
 
         static void Main(string[] args)
         {
-
             // Загрузить данные из файла JSON
             LoadData(); 
 
@@ -165,21 +196,72 @@ namespace ManagerPassword
 
         static void SaveData()
         {
-            string json = JsonConvert.SerializeObject(sites, Formatting.Indented);
-            File.WriteAllText("data.json", json);
-            Console.WriteLine("[Данные успешно сохранены]");
+            if (sites.Count != 0)
+            {
+                string json = JsonConvert.SerializeObject(sites, Formatting.Indented);
+                string encryptedData = Encrypt(json, encryptionKey);
+                File.WriteAllText("data.json", encryptedData);
+                Console.WriteLine("[Данные успешно сохранены]");
+            }
         }
 
         static void LoadData()
         {
             if (File.Exists("data.json"))
             {
-                string json = File.ReadAllText("data.json");
+                string encryptedData = File.ReadAllText("data.json");
+                string json = Decrypt(encryptedData, encryptionKey);
                 sites = JsonConvert.DeserializeObject<List<Site>>(json);
                 Console.WriteLine("[Данные успешно загружены]");
             }
             else
                 Console.WriteLine("[Файл данных не найден]");
         }
+
+        private static string Encrypt(string text, string key)
+        {
+            byte[] encryptedBytes;
+            using (AesManaged aes = new AesManaged())
+            {
+                aes.Key = Encoding.UTF8.GetBytes(key);
+                aes.IV = Encoding.UTF8.GetBytes(key.Substring(0, 16));
+                ICryptoTransform encryptor = aes.CreateEncryptor(aes.Key, aes.IV);
+                byte[] textBytes = Encoding.UTF8.GetBytes(text);
+                using (MemoryStream ms = new MemoryStream())
+                {
+                    using (CryptoStream cs = new CryptoStream(ms, encryptor, CryptoStreamMode.Write))
+                    {
+                        cs.Write(textBytes, 0, textBytes.Length);
+                        cs.FlushFinalBlock();
+                        encryptedBytes = ms.ToArray();
+                    }
+                }
+            }
+            return Convert.ToBase64String(encryptedBytes);
+        }
+
+        private static string Decrypt(string cipher, string key)
+        {
+            byte[] cipherBytes = Convert.FromBase64String(cipher);
+            byte[] decryptedBytes;
+            using (AesManaged aes = new AesManaged())
+            {
+                aes.Key = Encoding.UTF8.GetBytes(key);
+                aes.IV = Encoding.UTF8.GetBytes(key.Substring(0, 16));
+                ICryptoTransform decryptor = aes.CreateDecryptor(aes.Key, aes.IV);
+                using (MemoryStream ms = new MemoryStream(cipherBytes))
+                {
+                    using (CryptoStream cs = new CryptoStream(ms, decryptor, CryptoStreamMode.Read))
+                    {
+                        using (StreamReader sr = new StreamReader(cs))
+                        {
+                            decryptedBytes = Encoding.UTF8.GetBytes(sr.ReadToEnd());
+                        }
+                    }
+                }
+            }
+            return Encoding.UTF8.GetString(decryptedBytes);
+        }
+
     }
 }
