@@ -1,4 +1,4 @@
-# ManagerPassword
+# Менеджер паролей
 
 ![image](https://github.com/tailogs/ManagerPassword/assets/69743960/574c2f09-a8f9-4adc-be25-07d391df987e)
 
